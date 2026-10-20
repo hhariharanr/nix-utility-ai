@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in - NiX Utility AI</title><link rel="icon" href="/nix-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#050d22;color:#e8edf2;font:15px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+form{width:min(360px,92vw);background:#0c1733;border:1px solid #16254a;border-radius:10px;padding:28px}
+img{height:56px;display:block;margin:0 auto 6px}h1{font-size:16px;font-weight:600;text-align:center;margin:0 0 20px;color:#9fb3c8}
+label{display:block;margin:12px 0 4px}input{width:100%;font:inherit;padding:9px 10px;border:1px solid #2a3b66;border-radius:6px;background:#050d22;color:#e8edf2}
+button{width:100%;margin-top:18px;font:inherit;font-weight:600;padding:10px;border:0;border-radius:6px;background:#2f7df6;color:#fff;cursor:pointer}
+input:focus-visible,button:focus-visible{outline:3px solid #7db2ff;outline-offset:2px}#err{min-height:22px;margin-top:12px;color:#ff9b8f}
+</style></head><body>
+<form id="f"><img src="/nix-logo.png" alt="NiX"><h1>Utility AI</h1>
+ <label for="u">Username</label><input id="u" autocomplete="username" required autofocus>
+ <label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required>
+ <button id="go">Sign in</button><div id="err" role="alert"></div></form>
+<script>
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';
+ try{const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.value,password:p.value})});
+  if(r.ok)return location='/';const d=await r.json().catch(()=>({}));err.textContent=typeof d.detail==='string'?d.detail:'Could not sign in.'}
+ catch(x){err.textContent='Could not reach the server.'}};
+</script></body></html>

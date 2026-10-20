@@ -1,0 +1,12 @@
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE TABLE IF NOT EXISTS assets(asset_id text PRIMARY KEY, geom geometry(Polygon,4326), station text, city text, op_area text, state text, install_date date, capacity_kw real, last_cleaned_date date);
+CREATE INDEX IF NOT EXISTS assets_geom ON assets USING gist(geom);
+CREATE TABLE IF NOT EXISTS sessions(session_id uuid PRIMARY KEY, state text, question text, image_path text, captured_at timestamptz, lat double precision, lon double precision, method text, candidates jsonb, asset_id text, classification jsonb, risk jsonb, recommendation jsonb, ticket_id int, created_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS observations(obs_id serial PRIMARY KEY, session_id uuid, asset_id text REFERENCES assets, image_path text, captured_at timestamptz, geom geometry(Point,4326), source text, issue_class text, severity text, confidence real, risk_score int, risk_level text, energy_loss_kwh_day real, asset_confirmed boolean DEFAULT true);
+CREATE INDEX IF NOT EXISTS obs_time ON observations(captured_at);
+CREATE INDEX IF NOT EXISTS obs_asset ON observations(asset_id);
+CREATE TABLE IF NOT EXISTS tickets(ticket_id serial PRIMARY KEY, session_id uuid UNIQUE, asset_id text, issue_class text, priority text, action text, notes text, status text DEFAULT 'open', notified_status text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS notifications(id serial PRIMARY KEY, ticket_id int, message text, created_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS work_orders(wo_id serial PRIMARY KEY, station text, scheduled_for date, kind text, status text DEFAULT 'scheduled', source text DEFAULT 'planner');
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS wo_id int;
+CREATE TABLE IF NOT EXISTS ingest_items(item_id uuid PRIMARY KEY, image_path text, captured_at timestamptz, lat double precision, lon double precision, method text, candidates jsonb, classification jsonb, reason text, status text, asset_id text, created_at timestamptz DEFAULT now());

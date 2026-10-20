@@ -1,0 +1,160 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NiX Utility AI</title>
+<link rel="icon" href="/nix-icon.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceff3;--card:#fff;--ink:#16202c;--mut:#5d6b7a;--acc:#2f7df6;--line:#d5dce4;--low:#3f8f5f;--medium:#c79500;--high:#d9631e;--critical:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#10161d;--card:#18212b;--ink:#e8edf2;--mut:#93a1b0;--line:#2a3643}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 "IBM Plex Sans",system-ui,sans-serif;background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:20px;height:56px;padding:0 16px;background:#050d22;color:#e8edf2;border-bottom:1px solid #16254a;position:relative;z-index:2000}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 12px}.brand{display:flex;align-items:center;gap:10px;color:#e8edf2;text-decoration:none;font-weight:600}.brand img{height:36px;display:block}
+nav{display:flex;align-self:stretch;gap:2px;flex:1}
+.tab{background:none;color:#9fb3c8;border:0;border-bottom:3px solid transparent;border-radius:0;padding:0 14px;margin:0;font-weight:600;height:100%}.tab.on{color:#fff;border-bottom-color:var(--acc)}
+.pane{padding:16px 24px;flex:1;min-height:0;overflow:auto}#dash{padding:0;position:relative;overflow:hidden}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:16px}@media(max-width:960px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+button{font:inherit;padding:6px 12px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:6px;cursor:pointer;margin:2px 4px 2px 0}
+button.alt{background:none;color:var(--ink)}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+input,select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+#map{height:calc(100vh - 230px);min-height:300px;border-radius:6px}
+#log{height:calc(100vh - 260px);min-height:260px;overflow:auto;padding:4px}.msg{max-width:88%;padding:10px 14px;border-radius:12px;margin:8px 0;border:1px solid var(--line);background:var(--card)}
+.me{margin-left:auto;background:var(--ink);color:var(--bg);border-color:var(--ink)}.composer{display:flex;flex-wrap:wrap;gap:6px;padding-top:10px;border-top:1px solid var(--line)}.composer #qs{flex:1;min-width:180px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.kpi{border-left:4px solid var(--acc);padding-left:10px}.kpi b{font-size:26px;display:block;line-height:1.1}
+.pill{padding:1px 8px;border-radius:99px;color:#fff;font-weight:600}.low{background:var(--low)}.medium{background:var(--medium)}.high{background:var(--high)}.critical{background:var(--critical)}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}.mut{color:var(--mut)}summary{cursor:pointer}
+#bell{position:relative}header button.alt{color:#e8edf2;border-color:#3a4d78}#nl{position:absolute;right:0;top:40px;width:290px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;display:none;z-index:1000}
+.fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 16px;background:var(--card);border-bottom:1px solid var(--line)}
+#dmap{position:absolute;inset:0}#dmap .leaflet-bottom{margin-bottom:44px}#dmap.bo .leaflet-bottom{margin-bottom:calc(42vh + 8px)}#side{position:absolute;top:12px;right:12px;width:250px;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}#side .kpis{grid-template-columns:1fr 1fr;margin:8px 0}#side .kpi b{font-size:20px}#side canvas{max-height:140px}
+.stab{background:none;color:var(--mut);border:0;border-bottom:3px solid transparent;border-radius:0;padding:8px 14px;margin:0;font-weight:600}.stab.on{color:var(--ink);border-bottom-color:var(--acc)}.chip{font-size:13px}.lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 12px}
+#leg{position:absolute;top:12px;left:56px;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;max-width:calc(100% - 340px)}
+#bot{position:absolute;left:0;right:0;bottom:0;z-index:1100;background:var(--card);border-top:1px solid var(--line)}#bothead{display:flex;align-items:center;gap:4px;padding:0 12px}#bothead .alt{margin-left:auto}#botbody{height:42vh;overflow:auto;padding:8px 16px}
+@media(max-width:900px){header{height:auto;flex-wrap:wrap;padding:8px 12px}nav{order:3;flex:none;width:100%;overflow-x:auto}.tab{height:40px}}
+</style></head><body>
+<header><a class="brand" href="/"><img src="/nix-logo.png" alt="NiX"><span>Utility AI</span></a>
+ <nav role="tablist"><button class="tab on" role="tab" data-t="dash">Dashboard</button><button class="tab" role="tab" data-t="chat">Chat AI</button><button class="tab" role="tab" data-t="plan">Maintenance Planner</button><button class="tab" role="tab" data-t="ing">Photo Intake</button></nav>
+ <div id="bell"><button class="alt" id="bb">Notifications (<span id="nc">0</span>)</button><div id="nl"></div></div><button class="alt" id="so">Sign out</button></header>
+<div class="fbar" id="fb"><select id="f_state" aria-label="State"></select><select id="f_op_area" aria-label="Operating area"></select><select id="f_city" aria-label="City"></select><select id="f_station" aria-label="Station"></select>
+ From <input type="date" id="fs" aria-label="From date"> to <input type="date" id="fe" aria-label="To date"> <button class="alt" id="fx">Reset</button></div>
+
+<section id="dash" class="pane">
+ <div id="dmap"></div>
+ <div id="leg" class="lg mut"><i style="background:#b3261e;margin-left:0"></i>critical<i style="background:#d9631e"></i>high<i style="background:#c79500"></i>medium<i style="background:#8ab34a"></i>low<i style="background:#2a9d8f"></i>no issue<i style="background:#9aa5b1"></i>not inspected &nbsp; dashed outline = visit scheduled &nbsp;
+  <label><input type="checkbox" id="ext"> Only show figures for the map view</label></div>
+ <aside id="side"><button class="alt" id="sidetog" aria-expanded="true">Summary</button>
+  <div id="sidebody"><div class="kpis"><div class="kpi"><b id="k1">-</b>images</div><div class="kpi"><b id="k2">-</b>no issue</div><div class="kpi"><b id="k3">-</b>with issues</div><div class="kpi"><b id="k4">-</b>not inspected</div></div><canvas id="pie" height="130"></canvas></div></aside>
+ <div id="bot"><div id="bothead" role="tablist"><button class="stab on" role="tab" data-s="rank">Most urgent first</button><button class="stab" role="tab" data-s="roll">Maintenance load by area</button>
+   <button class="alt" id="bottog" aria-expanded="false">Show details</button></div>
+  <div id="botbody" hidden><div id="s_rank"><table id="rank"></table></div><div id="s_roll" hidden><p class="mut">Assets with issues and kWh/day lost, rolled up Station, City, OpArea, State.</p><table id="roll"></table></div></div></div>
+</section>
+
+<section id="chat" class="pane" hidden><div class="card" style="max-width:900px;margin:0 auto"><div id="log"></div>
+ <div class="composer"><input id="qs" placeholder="Ask about an asset, station, city, operating area or state" aria-label="Your question"><button id="go">Send</button></div>
+ <div style="margin-top:8px"><button class="alt chip">Which assets are most urgent?</button><button class="alt chip">What is scheduled and what is overdue?</button><button class="alt chip">Summarise the selected area</button></div></div></section>
+
+<section id="plan" class="pane" hidden>
+  <div class="card"><h2>Already scheduled</h2><table id="sch"></table></div>
+ <div class="card"><h2>Unscheduled backlog</h2>Group by <select id="pg"><option>station</option><option>city</option><option>op_area</option><option>state</option></select>
+  Schedule selected areas on <input type="date" id="pd" aria-label="Visit date">
+  <button id="mk">Schedule selected</button><span id="pm" class="mut"></span><div id="pl" style="margin-top:12px"></div></div></section>
+
+<section id="ing" class="pane" hidden><div class="card"><h2>Add geotagged photos</h2>
+ <input type="file" id="ifiles" accept="image/*" multiple aria-label="Photos"> <button id="iup">Process photos</button><span id="ires" class="mut"></span>
+ <p class="mut">Photos that match one panel with a confident result are added automatically. Everything else waits below for you to check.</p></div>
+ <div class="card"><h2>Needs review</h2><div id="iq"></div></div></section>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));let S,pin,chart,bnd,PL=[];
+const api=async(p,o)=>{const r=await fetch(p,o);if(r.status===401){location='/login';throw new Error('login required')}if(!r.ok)throw new Error(await r.text());return r.json()};
+const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+const tbl=(rows,head)=>`<tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr>`+rows.join('');
+const NEXT=['open','scheduled','in_progress','resolved'];
+
+/* tabs */
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
+ document.querySelectorAll('.pane').forEach(p=>p.hidden=p.id!==b.dataset.t);const t=b.dataset.t;
+ if(t==='plan')plan();if(t==='ing')iq().catch(()=>{});if(t==='dash'){setTimeout(()=>dmap.invalidateSize(),50);dash().catch(()=>{})}});
+
+/* chat */
+const log=$('#log'),say=(w,h)=>{const d=document.createElement('div');d.className='msg '+w;d.innerHTML=h;log.appendChild(d);log.scrollTop=log.scrollHeight;return d};
+const clr=()=>document.querySelectorAll('.act').forEach(a=>a.remove());let HIST=[];
+say('ai','Ask me about any asset, station, city, operating area or state. I look up the data and answer from it. The filters at the top tell me what "this area" means.');
+async function send(t){t=(t||$('#qs').value).trim();if(!t)return;$('#qs').value='';clr();say('me',esc(t));HIST.push({role:'user',content:t});const w=say('ai','Looking that up...');
+ try{const ctx=Object.fromEntries([...LV.map(l=>[l,F[l]]),['start',F.start],['end',F.end]]);const r=await post('/chat',{messages:HIST,context:ctx});w.remove();HIST.push({role:'assistant',content:r.reply});
+  say('ai',esc(r.reply).replace(/\n/g,'<br>')+(r.proposal.length?`<div class="act"><p>Schedule ${r.proposal.length} asset(s)? <input type="date" class="pdd" aria-label="Visit date"> <button onclick="doSched(this)" data-a='${JSON.stringify(r.proposal)}'>Confirm schedule</button></p></div>`:''))}
+ catch(e){w.remove();HIST.pop();say('ai','Something went wrong: '+esc(e.message))}}
+async function doSched(b){const d=b.parentNode.querySelector('.pdd').value;if(!d)return alert('Pick a visit date first.');
+ const r=await post('/planner/schedule',{asset_ids:JSON.parse(b.dataset.a),date:d});clr();say('ai',`Scheduled ${r.created.length} visit(s). You can see them in the Maintenance Planner.`)}
+$('#go').onclick=()=>send();$('#qs').onkeydown=e=>{if(e.key==='Enter')send()};document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>send(c.textContent));
+document.querySelectorAll('.stab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.stab').forEach(x=>x.classList.toggle('on',x===b));['rank','roll'].forEach(k=>$('#s_'+k).hidden=k!==b.dataset.s);setBot(true)});
+function setBot(o){$('#botbody').hidden=!o;$('#dmap').classList.toggle('bo',o);$('#bottog').textContent=o?'Hide details':'Show details';$('#bottog').setAttribute('aria-expanded',String(o))}
+$('#bottog').onclick=()=>setBot($('#botbody').hidden);
+$('#sidetog').onclick=()=>{const b=$('#sidebody');b.hidden=!b.hidden;$('#sidetog').setAttribute('aria-expanded',String(!b.hidden))};
+
+/* dashboard */
+async function dash(sm){const d=await api('/dashboard?'+dq());$('#k1').textContent=d.images_collected;$('#k2').textContent=d.assets_no_issue;$('#k3').textContent=d.assets_with_issues;$('#k4').textContent=d.assets_not_inspected;
+ chart&&chart.destroy();chart=new Chart($('#pie'),{type:'pie',data:{labels:Object.keys(d.issues_by_class),datasets:[{data:Object.values(d.issues_by_class)}]},options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:11}}}}}});
+ $('#rank').innerHTML=tbl(d.urgency_ranking.map(r=>`<tr style="cursor:pointer" onclick="pick('${r.asset_id}',true)"><td>${r.asset_id}</td><td>${r.issue_class}</td><td>${r.risk_score}</td><td><span class="pill ${r.risk_level}">${r.risk_level}</span></td><td>${r.energy_loss_kwh_day??'-'}</td></tr>`),['Asset','Issue','Score','Level','kWh/day lost']);
+ $('#roll').innerHTML=tbl(d.rollup.map(r=>{const dp=[r.state,r.op_area,r.city,r.station].filter(Boolean).length;return `<tr><td style="padding-left:${dp*14}px">${r.station||r.city||r.op_area||r.state||'All'}</td><td>${r.assets_with_issues}</td><td>${r.total_loss_kwh_day??'-'}</td></tr>`}),['Area','Assets','kWh/day']);if(!sm)drawMap().catch(()=>{})}
+
+/* shared filters (cascading) */
+const LV=['state','op_area','city','station'],F={start:'',end:''};let fitNext=true;
+const fq=()=>{const p=new URLSearchParams();LV.forEach(l=>F[l]&&p.set(l,F[l]));if(F.start)p.set('start',F.start+'T00:00:00Z');if(F.end)p.set('end',F.end+'T23:59:59Z');return p};
+const dq=()=>{const p=fq();if($('#ext').checked){const b=dmap.getBounds();p.set('minx',b.getWest());p.set('miny',b.getSouth());p.set('maxx',b.getEast());p.set('maxy',b.getNorth())}return p};
+async function fb(){const p=new URLSearchParams();LV.slice(0,3).forEach(l=>F[l]&&p.set(l,F[l]));const o=await api('/areas?'+p);
+ LV.forEach(l=>{$('#f_'+l).innerHTML=`<option value="">All ${l.replace('_',' ')}s</option>`+o[l].map(v=>`<option${F[l]===v?' selected':''}>${esc(v)}</option>`).join('')})}
+const refresh=()=>{fitNext=true;const t=document.querySelector('.tab.on').dataset.t;if(t==='dash')dash().catch(()=>{});if(t==='plan')plan().catch(()=>{})};
+function bindF(){LV.forEach((l,i)=>$('#f_'+l).onchange=async()=>{F[l]=$('#f_'+l).value;LV.slice(i+1).forEach(x=>F[x]='');await fb();refresh()});
+ $('#fs').onchange=()=>{F.start=$('#fs').value;refresh()};$('#fe').onchange=()=>{F.end=$('#fe').value;refresh()};
+ $('#fx').onclick=async()=>{LV.forEach(l=>F[l]='');F.start=F.end='';$('#fs').value='';$('#fe').value='';await fb();refresh()}}
+
+/* map-driven dashboard: the map, filters, charts and tables share one state (F, selected asset, map extent) */
+const dmap=L.map('dmap').setView([12.97,77.59],16);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap'}).addTo(dmap);
+const RC={critical:'#b3261e',high:'#d9631e',medium:'#c79500',low:'#8ab34a',clean:'#2a9d8f',none:'#9aa5b1'};let dlayer,dmark,byId={},sel=null,mt;
+const rcol=p=>!p.issue_class?RC.none:p.issue_class==='clean'?RC.clean:RC[p.risk_level];
+const sty=f=>({color:f.properties.asset_id===sel?'#000':rcol(f.properties),weight:f.properties.asset_id===sel?4:2,fillColor:rcol(f.properties),fillOpacity:.6,dashArray:f.properties.scheduled?'4':null});
+async function drawMap(){const g=await api('/map?'+fq());dlayer&&dlayer.remove();dmark&&dmark.remove();byId={};dmark=L.layerGroup();
+ dlayer=L.geoJSON(g,{style:sty,onEachFeature:(f,l)=>{byId[f.properties.asset_id]=l;l.on('click',()=>pick(f.properties.asset_id))}}).addTo(dmap);
+ dlayer.eachLayer(l=>L.circleMarker(l.getBounds().getCenter(),{radius:6,color:'#fff',weight:1,fillColor:rcol(l.feature.properties),fillOpacity:.95}).on('click',()=>pick(l.feature.properties.asset_id)).addTo(dmark));dmark.addTo(dmap);
+ if(fitNext&&g.features.length&&!$('#ext').checked)dmap.fitBounds(dlayer.getBounds().pad(.1));fitNext=false}
+function pick(id,close){const l=byId[id];if(!l)return;if(close)setBot(false);sel=id;dlayer.setStyle(sty);const p=l.feature.properties;dmap.fitBounds(l.getBounds().pad(3),{maxZoom:19});
+ L.popup().setLatLng(l.getBounds().getCenter()).setContent(`<b>${p.asset_id}</b><br>${esc(p.station)}<br>${p.issue_class?p.issue_class.replace('_',' ')+' ('+p.risk_level+', '+p.risk_score+'/100)':'Not inspected in this period'}${p.energy_loss_kwh_day!=null?'<br>'+p.energy_loss_kwh_day+' kWh/day lost':''}${p.scheduled?'<br>Visit scheduled':''}<br><button onclick="onlyStation('${p.asset_id}')">Show only this station</button>`).openOn(dmap)}
+async function onlyStation(id){const p=byId[id].feature.properties;LV.forEach(l=>F[l]=p[l]);await fb();refresh()}
+$('#ext').onchange=()=>dash(true).catch(()=>{});
+dmap.on('moveend',()=>{if(!$('#ext').checked)return;clearTimeout(mt);mt=setTimeout(()=>dash(true).catch(()=>{}),300)});
+
+/* maintenance planner */
+const dt=s=>new Date(s+'T00:00').toLocaleDateString();
+async function plan(){const p=fq();p.set('group',$('#pg').value);const d=await api('/planner?'+p);PL=d.groups;
+ $('#sch').innerHTML=d.visits.length?tbl(d.visits.map(v=>`<tr><td>#${v.wo_id}</td><td>${dt(v.scheduled_for)}</td><td>${esc(v.station)}</td><td>${v.kind}</td><td>${v.assets.map(a=>a.asset_id).join(', ')||'-'}</td>
+  <td>${v.status.replace('_',' ')}${v.flags.map(f=>` <span class="pill ${f.sev}">${f.type.replaceAll('_',' ')}</span>`).join('')}<div class="mut">${v.flags.map(f=>esc(f.text)).join(' ')}</div></td>
+  <td>${v.status!=='done'?`<button class="alt" onclick="wadv(${v.wo_id})">Advance</button><button class="alt" onclick="resched(${v.wo_id})">Reschedule</button>`:''}</td></tr>`),['Order','Date','Station','Work','Assets','Status','']):'<tr><td class="mut">No scheduled visits in this selection.</td></tr>';
+ $('#pl').innerHTML=PL.length?PL.map((g,i)=>`<details class="card"><summary><input type="checkbox" class="pc" value="${i}" onclick="event.stopPropagation()" aria-label="Select ${esc(g.area)}"> <b>${esc(g.area)}</b> - ${g.issues} issues, ${g.urgent} urgent, ${g.loss_kwh_day} kWh/day lost${g.no_visit_urgent?` <span class="pill critical">${g.no_visit_urgent} urgent, no visit planned</span>`:''}</summary>
+  <table>${tbl(g.items.map(r=>`<tr><td>${r.asset_id}</td><td>${r.issue_class}</td><td><span class="pill ${r.risk_level}">${r.risk_level}</span></td><td>${r.action.replaceAll('_',' ')}</td>
+  <td>${r.join?`<button class="alt" onclick="addTo(${r.join.wo_id},'${r.asset_id}')">Add to #${r.join.wo_id} (${dt(r.join.date)})</button>`:''}</td></tr>`),['Asset','Issue','Level','Action',''])}</table></details>`).join(''):'<div class="mut">No unscheduled issues in this selection.</div>'}
+const wadv=async id=>{await post(`/work-orders/${id}/advance`,{});plan()};
+const resched=async id=>{const d=prompt('New date (YYYY-MM-DD)');if(d){try{await post(`/work-orders/${id}/reschedule`,{date:d});plan()}catch(e){alert('Could not reschedule: use the format YYYY-MM-DD')}}};
+const addTo=async(wo,a)=>{await post('/planner/assign',{asset_ids:[a],wo_id:wo});plan()};
+$('#pg').onchange=()=>plan();
+$('#mk').onclick=async()=>{const ids=[...document.querySelectorAll('.pc:checked')].flatMap(c=>PL[c.value].items.map(r=>r.asset_id));
+ if(!ids.length)return $('#pm').textContent=' Select at least one area.';if(!$('#pd').value)return $('#pm').textContent=' Pick a visit date.';
+ const r=await post('/planner/schedule',{asset_ids:ids,date:$('#pd').value});$('#pm').textContent=` Scheduled ${r.created.length} visit(s).`;plan()};
+
+/* photo intake + verification queue */
+async function iq(){const d=await api('/ingest/queue'),c=d.counts;
+ $('#iq').innerHTML=(d.items.length?d.items.map(x=>`<div class="msg" style="max-width:none;display:flex;gap:12px;flex-wrap:wrap"><img src="/files/ingest/${x.item_id}.jpg" alt="Photo to review" style="width:160px;border-radius:6px">
+  <div style="flex:1;min-width:240px"><b>${x.classification.issue_class.replace('_',' ')}</b> (${Math.round(x.classification.confidence*100)}% confident)<br><span class="mut">Why it needs review: ${esc(x.reason)}</span><br>
+  ${x.candidates.map(a=>`<button onclick="vfy('${x.item_id}','${a.asset_id}')">Confirm ${a.asset_id} (${a.distance_m.toFixed(0)} m)</button>`).join('')}
+  <div style="margin-top:6px"><input id="a_${x.item_id}" placeholder="Asset ID, e.g. SP-0001" size="18" aria-label="Asset ID"> <button class="alt" onclick="vfy('${x.item_id}',$('#a_${x.item_id}').value.trim())">Assign</button><button class="alt" onclick="rej('${x.item_id}')">Reject photo</button></div></div></div>`).join(''):'<span class="mut">Nothing is waiting for review.</span>')
+  +`<p class="mut">So far: ${c.auto||0} added automatically, ${c.verified||0} verified by you, ${c.rejected||0} rejected.</p>`}
+async function vfy(id,a){if(!a)return alert('Enter an asset ID first.');try{await post(`/ingest/${id}/verify`,{asset_id:a});iq()}catch(e){alert('Could not assign that photo: '+e.message)}}
+const rej=async id=>{await post(`/ingest/${id}/reject`,{});iq()};
+$('#iup').onclick=async()=>{const fs=$('#ifiles').files;if(!fs.length)return $('#ires').textContent=' Choose photos first.';const fd=new FormData();[...fs].forEach(f=>fd.append('files',f));$('#ires').textContent=' Processing...';
+ try{const r=await api('/ingest',{method:'POST',body:fd});$('#ires').textContent=` ${r.auto} added automatically, ${r.review} need review.`;iq()}catch(e){$('#ires').textContent=' Failed: '+e.message}};
+
+$('#so').onclick=async()=>{await fetch('/logout',{method:'POST'});location='/login'};
+/* notifications */
+async function bell(){try{const n=await api('/notifications');$('#nc').textContent=n.length;$('#nl').innerHTML=n.map(x=>`<div>${esc(x.message)}<div class="mut">${new Date(x.created_at).toLocaleString()}</div></div>`).join('')||'<span class="mut">No updates yet.</span>'}catch(e){}}
+$('#bb').onclick=()=>{const l=$('#nl');l.style.display=l.style.display==='block'?'none':'block'};
+bindF();fb().then(()=>dash()).catch(()=>{});bell();setInterval(bell,10000);
+</script></body></html>

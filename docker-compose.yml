@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment: {POSTGRES_USER: nix, POSTGRES_PASSWORD: nix, POSTGRES_DB: nix}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nix -d nix"], interval: 3s, retries: 20}
+  api:
+    build: ./backend
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql://nix:nix@db:5432/nix
+    volumes: ["./frontend:/app/frontend", "./data:/data", "./llm.ini:/app/llm.ini:ro", "./auth.ini:/app/auth.ini:ro"]
+    depends_on: {db: {condition: service_healthy}}
+volumes: {pgdata: {}}

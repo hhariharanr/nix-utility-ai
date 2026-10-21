@@ -19,7 +19,7 @@ def risk_score(asset, obs, n_similar=0, today=None):
     soil = cls in SOILING
     cap, ins, lc = asset.get("capacity_kw"), asset.get("install_date"), asset.get("last_cleaned_date")
     loss = cap * PSH * LOSS[soil][sev] / 100 if cap else None
-    f = {"severity": CW[cls] * SEV[sev],
+    f = {"severity": CW.get(cls, .5) * SEV[sev],
          "age": min((today - ins).days / 365.25 / LIFE, 1) if ins else None,
          "overdue": min((today - lc).days / INTERVAL / 2, 1) if lc else None,
          "recurrence": min(n_similar / 3, 1),

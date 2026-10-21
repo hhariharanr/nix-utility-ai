@@ -9,6 +9,7 @@ services:
     ports: ["8000:8000"]
     environment:
       DATABASE_URL: postgresql://nix:nix@db:5432/nix
-    volumes: ["./frontend:/app/frontend", "./data:/data", "./llm.ini:/app/llm.ini:ro", "./auth.ini:/app/auth.ini:ro"]
+      MATCH_BUFFER_M: "3"
+    volumes: ["./frontend:/app/frontend", "./data:/data", "./llm.ini:/app/llm.ini:ro", "./auth.ini:/app/auth.ini:ro", "./ml:/app/ml:ro"]
     depends_on: {db: {condition: service_healthy}}
 volumes: {pgdata: {}}

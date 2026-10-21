@@ -5,4 +5,5 @@ pillow
 python-multipart
 apscheduler
 httpx
-# tensorflow-cpu   # uncomment once a trained model exists
+tensorflow-cpu>=2.16
+numpy

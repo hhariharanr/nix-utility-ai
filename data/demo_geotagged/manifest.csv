@@ -1,0 +1,30 @@
+file,scenario,nearest_asset,lat,lon,expected_in_photo_intake
+photo_000.jpg,on_panel,SP-0016,12.970091735857983,77.59046033993974,added automatically (or review if the classifier is not confident)
+photo_001.jpg,on_panel,SP-0055,12.970379431666423,77.5903826871459,added automatically (or review if the classifier is not confident)
+photo_002.jpg,off_panel,,12.980458138699246,77.60032264019989,review: no panel at this location
+photo_003.jpg,no_gps,,,,review: no GPS tag on the photo
+photo_004.jpg,on_panel,SP-0052,12.970367511797727,77.5901598983186,added automatically (or review if the classifier is not confident)
+photo_005.jpg,on_panel,SP-0048,12.970303582142012,77.59059693637626,added automatically (or review if the classifier is not confident)
+photo_006.jpg,on_panel,SP-0051,12.970376562867914,77.59008542536091,added automatically (or review if the classifier is not confident)
+photo_007.jpg,on_panel,SP-0051,12.970367440439587,77.59009001551968,added automatically (or review if the classifier is not confident)
+photo_008.jpg,near_panel,SP-0026,12.970180111390587,77.59045630542553,"review: location is near a panel, not on it"
+photo_009.jpg,on_panel,SP-0030,12.970226544076576,77.59001224206398,added automatically (or review if the classifier is not confident)
+photo_010.jpg,on_panel,SP-0035,12.970230830944,77.59038520093354,added automatically (or review if the classifier is not confident)
+photo_011.jpg,near_panel,SP-0017,12.970108246496588,77.59053005175696,"review: location is near a panel, not on it"
+photo_012.jpg,on_panel,SP-0055,12.970372493561548,77.59039002125199,added automatically (or review if the classifier is not confident)
+photo_013.jpg,on_panel,SP-0053,12.97037048348847,77.59023481629487,added automatically (or review if the classifier is not confident)
+photo_014.jpg,on_panel,SP-0043,12.970293301787382,77.59023437196436,added automatically (or review if the classifier is not confident)
+photo_015.jpg,on_panel,SP-0024,12.970162030094261,77.59031480295555,added automatically (or review if the classifier is not confident)
+photo_016.jpg,on_panel,SP-0033,12.97023624170371,77.59022730856098,added automatically (or review if the classifier is not confident)
+photo_017.jpg,on_panel,SP-0058,12.970376931873838,77.59059574321863,added automatically (or review if the classifier is not confident)
+photo_018.jpg,on_panel,SP-0024,12.970150243690995,77.59030623128307,added automatically (or review if the classifier is not confident)
+photo_019.jpg,off_panel,,12.98017067912325,77.60017514753709,review: no panel at this location
+photo_020.jpg,on_panel,SP-0038,12.970226191189182,77.59060304645591,added automatically (or review if the classifier is not confident)
+photo_021.jpg,on_panel,SP-0050,12.970377588622172,77.59001122803059,added automatically (or review if the classifier is not confident)
+photo_022.jpg,no_gps,,,,review: no GPS tag on the photo
+photo_023.jpg,on_panel,SP-0003,12.9700118142981,77.59023050958307,added automatically (or review if the classifier is not confident)
+photo_024.jpg,between_panels,SP-0058,12.970372799137623,77.59064067125405,review: several panels nearby
+photo_025.jpg,on_panel,SP-0029,12.970159318984065,77.59068545884911,added automatically (or review if the classifier is not confident)
+photo_026.jpg,no_gps,,,,review: no GPS tag on the photo
+photo_027.jpg,on_panel,SP-0042,12.970299742533973,77.59016397204572,added automatically (or review if the classifier is not confident)
+photo_028.jpg,on_panel,SP-0028,12.970154073804498,77.59061002929973,added automatically (or review if the classifier is not confident)

@@ -29,6 +29,7 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:4px 6px;
 #leg{position:absolute;top:12px;left:56px;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;max-width:calc(100% - 340px)}
 #bot{position:absolute;left:0;right:0;bottom:0;z-index:1100;background:var(--card);border-top:1px solid var(--line)}#bothead{display:flex;align-items:center;gap:4px;padding:0 12px}#bothead .alt{margin-left:auto}#botbody{height:42vh;overflow:auto;padding:8px 16px}
 @media(max-width:900px){header{height:auto;flex-wrap:wrap;padding:8px 12px}nav{order:3;flex:none;width:100%;overflow-x:auto}.tab{height:40px}}
+.leaflet-popup-content .mut{color:#5d6b7a}
 </style></head><body>
 <header><a class="brand" href="/"><img src="/nix-logo.png" alt="NiX"><span>Utility AI</span></a>
  <nav role="tablist"><button class="tab on" role="tab" data-t="dash">Dashboard</button><button class="tab" role="tab" data-t="chat">Chat AI</button><button class="tab" role="tab" data-t="plan">Maintenance Planner</button><button class="tab" role="tab" data-t="ing">Photo Intake</button></nav>
@@ -44,7 +45,7 @@ table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:4px 6px;
   <div id="sidebody"><div class="kpis"><div class="kpi"><b id="k1">-</b>images</div><div class="kpi"><b id="k2">-</b>no issue</div><div class="kpi"><b id="k3">-</b>with issues</div><div class="kpi"><b id="k4">-</b>not inspected</div></div><canvas id="pie" height="130"></canvas></div></aside>
  <div id="bot"><div id="bothead" role="tablist"><button class="stab on" role="tab" data-s="rank">Most urgent first</button><button class="stab" role="tab" data-s="roll">Maintenance load by area</button>
    <button class="alt" id="bottog" aria-expanded="false">Show details</button></div>
-  <div id="botbody" hidden><div id="s_rank"><table id="rank"></table></div><div id="s_roll" hidden><p class="mut">Assets with issues and kWh/day lost, rolled up Station, City, OpArea, State.</p><table id="roll"></table></div></div></div>
+  <div id="botbody" hidden><div id="s_rank"><p class="mut">kWh/day generated (optimum) = panel capacity x 5 peak sun hours, the output with no losses (an assumption).</p><table id="rank"></table></div><div id="s_roll" hidden><p class="mut">Assets with issues, rolled up Station, City, OpArea, State. Optimum = panel capacity x 5 peak sun hours, the output with no losses (an assumption).</p><table id="roll"></table></div></div></div>
 </section>
 
 <section id="chat" class="pane" hidden><div class="card" style="max-width:900px;margin:0 auto"><div id="log"></div>
@@ -94,8 +95,8 @@ $('#sidetog').onclick=()=>{const b=$('#sidebody');b.hidden=!b.hidden;$('#sidetog
 /* dashboard */
 async function dash(sm){const d=await api('/dashboard?'+dq());$('#k1').textContent=d.images_collected;$('#k2').textContent=d.assets_no_issue;$('#k3').textContent=d.assets_with_issues;$('#k4').textContent=d.assets_not_inspected;
  chart&&chart.destroy();chart=new Chart($('#pie'),{type:'pie',data:{labels:Object.keys(d.issues_by_class),datasets:[{data:Object.values(d.issues_by_class)}]},options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:11}}}}}});
- $('#rank').innerHTML=tbl(d.urgency_ranking.map(r=>`<tr style="cursor:pointer" onclick="pick('${r.asset_id}',true)"><td>${r.asset_id}</td><td>${r.issue_class}</td><td>${r.risk_score}</td><td><span class="pill ${r.risk_level}">${r.risk_level}</span></td><td>${r.energy_loss_kwh_day??'-'}</td></tr>`),['Asset','Issue','Score','Level','kWh/day lost']);
- $('#roll').innerHTML=tbl(d.rollup.map(r=>{const dp=[r.state,r.op_area,r.city,r.station].filter(Boolean).length;return `<tr><td style="padding-left:${dp*14}px">${r.station||r.city||r.op_area||r.state||'All'}</td><td>${r.assets_with_issues}</td><td>${r.total_loss_kwh_day??'-'}</td></tr>`}),['Area','Assets','kWh/day']);if(!sm)drawMap().catch(()=>{})}
+ $('#rank').innerHTML=tbl(d.urgency_ranking.map(r=>`<tr style="cursor:pointer" onclick="pick('${r.asset_id}',true)"><td>${r.asset_id}</td><td>${r.issue_class}</td><td>${r.risk_score}</td><td><span class="pill ${r.risk_level}">${r.risk_level}</span></td><td>${r.energy_loss_kwh_day??'-'}</td><td>${r.optimum_kwh_day??'-'}</td></tr>`),['Asset','Issue','Score','Level','kWh/day lost','kWh/day generated (optimum)']);
+ $('#roll').innerHTML=tbl(d.rollup.map(r=>{const dp=[r.state,r.op_area,r.city,r.station].filter(Boolean).length;return `<tr><td style="padding-left:${dp*14}px">${r.station||r.city||r.op_area||r.state||'All'}</td><td>${r.assets_with_issues}</td><td>${r.total_loss_kwh_day??'-'}</td><td>${r.total_optimum_kwh_day??'-'}</td></tr>`}),['Area','Assets with issues','kWh/day lost','kWh/day generated (optimum)']);if(!sm)drawMap().catch(()=>{})}
 
 /* shared filters (cascading) */
 const LV=['state','op_area','city','station'],F={start:'',end:''};let fitNext=true;
@@ -109,16 +110,22 @@ function bindF(){LV.forEach((l,i)=>$('#f_'+l).onchange=async()=>{F[l]=$('#f_'+l)
  $('#fx').onclick=async()=>{LV.forEach(l=>F[l]='');F.start=F.end='';$('#fs').value='';$('#fe').value='';await fb();refresh()}}
 
 /* map-driven dashboard: the map, filters, charts and tables share one state (F, selected asset, map extent) */
-const dmap=L.map('dmap').setView([12.97,77.59],16);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap'}).addTo(dmap);
+const dmap=L.map('dmap',{maxZoom:22}).setView([12.97,77.59],16);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap',maxNativeZoom:19,maxZoom:22}).addTo(dmap);
 const RC={critical:'#b3261e',high:'#d9631e',medium:'#c79500',low:'#8ab34a',clean:'#2a9d8f',none:'#9aa5b1'};let dlayer,dmark,byId={},sel=null,mt;
+const syncMarkers=()=>{if(!dmark)return;dmap.getZoom()>=20?dmap.removeLayer(dmark):dmap.addLayer(dmark)};dmap.on('zoomend',syncMarkers);  /* dots help when zoomed out; hide them when the polygons themselves are visible */
 const rcol=p=>!p.issue_class?RC.none:p.issue_class==='clean'?RC.clean:RC[p.risk_level];
 const sty=f=>({color:f.properties.asset_id===sel?'#000':rcol(f.properties),weight:f.properties.asset_id===sel?4:2,fillColor:rcol(f.properties),fillOpacity:.6,dashArray:f.properties.scheduled?'4':null});
 async function drawMap(){const g=await api('/map?'+fq());dlayer&&dlayer.remove();dmark&&dmark.remove();byId={};dmark=L.layerGroup();
  dlayer=L.geoJSON(g,{style:sty,onEachFeature:(f,l)=>{byId[f.properties.asset_id]=l;l.on('click',()=>pick(f.properties.asset_id))}}).addTo(dmap);
- dlayer.eachLayer(l=>L.circleMarker(l.getBounds().getCenter(),{radius:6,color:'#fff',weight:1,fillColor:rcol(l.feature.properties),fillOpacity:.95}).on('click',()=>pick(l.feature.properties.asset_id)).addTo(dmark));dmark.addTo(dmap);
+ dlayer.eachLayer(l=>L.circleMarker(l.getBounds().getCenter(),{radius:6,color:'#fff',weight:1,fillColor:rcol(l.feature.properties),fillOpacity:.95}).on('click',()=>pick(l.feature.properties.asset_id)).addTo(dmark));syncMarkers();
  if(fitNext&&g.features.length&&!$('#ext').checked)dmap.fitBounds(dlayer.getBounds().pad(.1));fitNext=false}
-function pick(id,close){const l=byId[id];if(!l)return;if(close)setBot(false);sel=id;dlayer.setStyle(sty);const p=l.feature.properties;dmap.fitBounds(l.getBounds().pad(3),{maxZoom:19});
- L.popup().setLatLng(l.getBounds().getCenter()).setContent(`<b>${p.asset_id}</b><br>${esc(p.station)}<br>${p.issue_class?p.issue_class.replace('_',' ')+' ('+p.risk_level+', '+p.risk_score+'/100)':'Not inspected in this period'}${p.energy_loss_kwh_day!=null?'<br>'+p.energy_loss_kwh_day+' kWh/day lost':''}${p.scheduled?'<br>Visit scheduled':''}<br><button onclick="onlyStation('${p.asset_id}')">Show only this station</button>`).openOn(dmap)}
+function pick(id,close){const l=byId[id];if(!l)return;if(close)setBot(false);sel=id;dlayer.setStyle(sty);const p=l.feature.properties;dmap.fitBounds(l.getBounds().pad(3),{maxZoom:21});
+ L.popup({maxWidth:340}).setLatLng(l.getBounds().getCenter()).setContent(`<b>${p.asset_id}</b><br>${esc(p.station)}<br>${p.captured_at?'Captured '+new Date(p.captured_at).toLocaleString()+'<br>':''}${p.issue_class?p.issue_class.replace('_',' ')+' ('+p.risk_level+', '+p.risk_score+'/100)':'Not inspected in this period'}${p.energy_loss_kwh_day!=null?'<br>'+p.energy_loss_kwh_day+' kWh/day lost':''}${p.optimum_kwh_day!=null?'<br>'+p.optimum_kwh_day+' kWh/day generated at optimum capacity':''}${p.scheduled?'<br>Visit scheduled':''}${popupPics(p)}<br><button onclick="onlyStation('${p.asset_id}')">Show only this station</button>`).openOn(dmap)}
+const SRC={seed:'synthetic demo data',photo:'photo, added automatically',photo_verified:'photo, verified by a reviewer'};
+function popupPics(p){const src=p.source?`<br><span class="mut">Source: ${SRC[p.source]||esc(p.source)}</span>`:'';
+ if(!p.image_url)return src+(p.issue_class?'<br><span class="mut">No photo behind this result.</span>':'');
+ const im=(u,a)=>`<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="${a}" style="width:150px;border-radius:6px"></a>`;
+ return `<div style="display:flex;gap:6px;margin:6px 0">${im(p.image_url,'Photo used for this result')}${p.cam_url?im(p.cam_url,'Areas the model relied on'):''}</div>`+(p.cam_url?'<span class="mut">Left: photo. Right: areas the model relied on.</span>':'')+src}
 async function onlyStation(id){const p=byId[id].feature.properties;LV.forEach(l=>F[l]=p[l]);await fb();refresh()}
 $('#ext').onchange=()=>dash(true).catch(()=>{});
 dmap.on('moveend',()=>{if(!$('#ext').checked)return;clearTimeout(mt);mt=setTimeout(()=>dash(true).catch(()=>{}),300)});
@@ -129,9 +136,9 @@ async function plan(){const p=fq();p.set('group',$('#pg').value);const d=await a
  $('#sch').innerHTML=d.visits.length?tbl(d.visits.map(v=>`<tr><td>#${v.wo_id}</td><td>${dt(v.scheduled_for)}</td><td>${esc(v.station)}</td><td>${v.kind}</td><td>${v.assets.map(a=>a.asset_id).join(', ')||'-'}</td>
   <td>${v.status.replace('_',' ')}${v.flags.map(f=>` <span class="pill ${f.sev}">${f.type.replaceAll('_',' ')}</span>`).join('')}<div class="mut">${v.flags.map(f=>esc(f.text)).join(' ')}</div></td>
   <td>${v.status!=='done'?`<button class="alt" onclick="wadv(${v.wo_id})">Advance</button><button class="alt" onclick="resched(${v.wo_id})">Reschedule</button>`:''}</td></tr>`),['Order','Date','Station','Work','Assets','Status','']):'<tr><td class="mut">No scheduled visits in this selection.</td></tr>';
- $('#pl').innerHTML=PL.length?PL.map((g,i)=>`<details class="card"><summary><input type="checkbox" class="pc" value="${i}" onclick="event.stopPropagation()" aria-label="Select ${esc(g.area)}"> <b>${esc(g.area)}</b> - ${g.issues} issues, ${g.urgent} urgent, ${g.loss_kwh_day} kWh/day lost${g.no_visit_urgent?` <span class="pill critical">${g.no_visit_urgent} urgent, no visit planned</span>`:''}</summary>
-  <table>${tbl(g.items.map(r=>`<tr><td>${r.asset_id}</td><td>${r.issue_class}</td><td><span class="pill ${r.risk_level}">${r.risk_level}</span></td><td>${r.action.replaceAll('_',' ')}</td>
-  <td>${r.join?`<button class="alt" onclick="addTo(${r.join.wo_id},'${r.asset_id}')">Add to #${r.join.wo_id} (${dt(r.join.date)})</button>`:''}</td></tr>`),['Asset','Issue','Level','Action',''])}</table></details>`).join(''):'<div class="mut">No unscheduled issues in this selection.</div>'}
+ $('#pl').innerHTML=PL.length?PL.map((g,i)=>`<details class="card"><summary><input type="checkbox" class="pc" value="${i}" onclick="event.stopPropagation()" aria-label="Select ${esc(g.area)}"> <b>${esc(g.area)}</b> - ${g.issues} issues, ${g.urgent} urgent, ${g.loss_kwh_day} kWh/day lost of ${g.optimum_kwh_day} kWh/day generated at optimum${g.no_visit_urgent?` <span class="pill critical">${g.no_visit_urgent} urgent, no visit planned</span>`:''}</summary>
+  <table>${tbl(g.items.map(r=>`<tr><td>${r.asset_id}</td><td>${r.issue_class}</td><td><span class="pill ${r.risk_level}">${r.risk_level}</span></td><td>${r.action.replaceAll('_',' ')}</td><td>${r.energy_loss_kwh_day??'-'}</td><td>${r.optimum_kwh_day??'-'}</td>
+  <td>${r.join?`<button class="alt" onclick="addTo(${r.join.wo_id},'${r.asset_id}')">Add to #${r.join.wo_id} (${dt(r.join.date)})</button>`:''}</td></tr>`),['Asset','Issue','Level','Action','kWh/day lost','kWh/day generated (optimum)',''])}</table></details>`).join(''):'<div class="mut">No unscheduled issues in this selection.</div>'}
 const wadv=async id=>{await post(`/work-orders/${id}/advance`,{});plan()};
 const resched=async id=>{const d=prompt('New date (YYYY-MM-DD)');if(d){try{await post(`/work-orders/${id}/reschedule`,{date:d});plan()}catch(e){alert('Could not reschedule: use the format YYYY-MM-DD')}}};
 const addTo=async(wo,a)=>{await post('/planner/assign',{asset_ids:[a],wo_id:wo});plan()};
@@ -142,7 +149,7 @@ $('#mk').onclick=async()=>{const ids=[...document.querySelectorAll('.pc:checked'
 
 /* photo intake + verification queue */
 async function iq(){const d=await api('/ingest/queue'),c=d.counts;
- $('#iq').innerHTML=(d.items.length?d.items.map(x=>`<div class="msg" style="max-width:none;display:flex;gap:12px;flex-wrap:wrap"><img src="/files/ingest/${x.item_id}.jpg" alt="Photo to review" style="width:160px;border-radius:6px">
+ $('#iq').innerHTML=(d.items.length?d.items.map(x=>`<div class="msg" style="max-width:none;display:flex;gap:12px;flex-wrap:wrap"><img src="/files/ingest/${x.item_id}.jpg" alt="Photo to review" style="width:160px;border-radius:6px">${x.classification.gradcam_path?`<img src="${x.classification.gradcam_path.replace(/^\/data/,'/files')}" alt="Areas the model relied on" title="Areas the model relied on" style="width:160px;border-radius:6px">`:''}
   <div style="flex:1;min-width:240px"><b>${x.classification.issue_class.replace('_',' ')}</b> (${Math.round(x.classification.confidence*100)}% confident)<br><span class="mut">Why it needs review: ${esc(x.reason)}</span><br>
   ${x.candidates.map(a=>`<button onclick="vfy('${x.item_id}','${a.asset_id}')">Confirm ${a.asset_id} (${a.distance_m.toFixed(0)} m)</button>`).join('')}
   <div style="margin-top:6px"><input id="a_${x.item_id}" placeholder="Asset ID, e.g. SP-0001" size="18" aria-label="Asset ID"> <button class="alt" onclick="vfy('${x.item_id}',$('#a_${x.item_id}').value.trim())">Assign</button><button class="alt" onclick="rej('${x.item_id}')">Reject photo</button></div></div></div>`).join(''):'<span class="mut">Nothing is waiting for review.</span>')

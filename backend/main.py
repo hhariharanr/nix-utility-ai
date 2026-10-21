@@ -10,14 +10,16 @@ from pydantic import BaseModel
 from PIL import Image
 from PIL.ExifTags import GPSTAGS
 from apscheduler.schedulers.background import BackgroundScheduler
-from risk import risk_score
+from risk import risk_score, PSH
 
 DB = os.getenv("DATABASE_URL", "postgresql://nix:nix@db:5432/nix")
 DATA, MODEL_PATH = os.getenv("DATA_DIR", "/data"), os.getenv("MODEL_PATH", "/data/model.keras")
 CLASSES = os.getenv("CLASSES", "clean,dust,bird_droppings,shading,snow,physical_damage,electrical_damage").split(",")
 ACTIONS = ["monitor", "schedule_cleaning", "schedule_inspection", "replace_module", "escalate_to_engineer"]
 STATUSES = ["open", "scheduled", "in_progress", "resolved"]
-BUFFER_M, J = 15, psycopg2.extras.Json
+BUFFER_M = float(os.getenv("MATCH_BUFFER_M", "3"))  # metres of GPS tolerance when a photo falls just outside a panel
+from decimal import Decimal
+J = lambda o: psycopg2.extras.Json(o, dumps=lambda x: json.dumps(x, default=lambda v: float(v) if isinstance(v, Decimal) else str(v)))  # never fail on Decimal or dates
 
 def q(sql, a=None, one=False):
     c = psycopg2.connect(DB)
@@ -62,27 +64,23 @@ def exif_info(path):
 
 def match(lat, lon):
     p = "ST_SetSRID(ST_MakePoint(%s,%s),4326)"
-    r = q(f"SELECT asset_id, 0.0 AS distance_m FROM assets WHERE ST_Intersects(geom,{p})", (lon, lat))
+    r = q(f"SELECT asset_id, 0.0::float8 AS distance_m FROM assets WHERE ST_Intersects(geom,{p})", (lon, lat))
     if r: return "intersect", r
     r = q(f"SELECT asset_id, ST_Distance(geom::geography,{p}::geography) AS distance_m FROM assets "
           f"WHERE ST_DWithin(geom::geography,{p}::geography,%s) ORDER BY 2 LIMIT 3", (lon, lat, lon, lat, BUFFER_M))
     return ("buffer", r) if r else ("none", [])
 
 # ---------- Classifier (CNN if model present, else deterministic stub) ----------
-_m = None
-def classify(path):
-    global _m
+def classify(path, cam_path=None):
+    """Trained EfficientNetB0 + Grad-CAM when data/model.keras exists, otherwise a deterministic stub so the rest of the app still runs."""
     try:
-        import tensorflow as tf
-        _m = _m or tf.keras.models.load_model(MODEL_PATH)
-        x = tf.keras.utils.img_to_array(tf.keras.utils.load_img(path, target_size=(224, 224)))  # raw 0-255 (EfficientNet rescales inside)
-        p = _m.predict(x[None], verbose=0)[0]; i = int(p.argmax())
-        cls, conf, src = CLASSES[i], float(p[i]), "cnn"
-    except Exception:
-        h = int(hashlib.md5(open(path, "rb").read()).hexdigest(), 16)
-        cls, conf, src = CLASSES[h % len(CLASSES)], 0.5 + (h % 45) / 100, "stub"
-    return dict(issue_class=cls, severity="medium", confidence=round(conf, 2), coverage_pct=None,
-                needs_review=conf < .6, source=src, severity_source="placeholder (replace with Grad-CAM coverage)")
+        import vision
+        if vision.available(): return vision.predict(path, cam_path)
+    except Exception as e:
+        print("vision model failed, using stub:", e)
+    h = int(hashlib.md5(open(path, "rb").read()).hexdigest(), 16); conf = 0.5 + (h % 45) / 100
+    return dict(issue_class=CLASSES[h % len(CLASSES)], severity="medium", confidence=round(conf, 2), coverage_pct=None, needs_review=conf < .6,
+                source="stub", severity_source="placeholder", gradcam_path=None)
 
 # ---------- Universal LLM client: OpenAI-compatible chat completions, configured in llm.ini ----------
 CFG_PATH = os.getenv("LLM_CONFIG", "llm.ini")
@@ -216,16 +214,16 @@ COLS = {"state", "op_area", "city", "station"}
 @app.get("/dashboard")
 def dashboard(start: str = None, end: str = None, state: str = None, op_area: str = None, city: str = None, station: str = None, minx: float = None, miny: float = None, maxx: float = None, maxy: float = None):
     now = datetime.now(timezone.utc)
-    P = dict(s=start or (now - timedelta(days=30)).isoformat(), e=end or now.isoformat(), state=state, op_area=op_area, city=city, station=station, minx=minx, miny=miny, maxx=maxx, maxy=maxy)
+    P = dict(s=start or (now - timedelta(days=30)).isoformat(), e=end or now.isoformat(), state=state, op_area=op_area, city=city, station=station, minx=minx, miny=miny, maxx=maxx, maxy=maxy, psh=PSH)
     flt = area_flt(P)
     win = "o.captured_at BETWEEN %(s)s::timestamptz AND %(e)s::timestamptz"
-    L = (f"WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.risk_score,o.risk_level,o.energy_loss_kwh_day,a.station,a.city,a.op_area,a.state "
+    L = (f"WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.risk_score,o.risk_level,o.energy_loss_kwh_day,a.capacity_kw,a.station,a.city,a.op_area,a.state "
          f"FROM observations o JOIN assets a ON a.asset_id=o.asset_id WHERE o.asset_confirmed AND {win} {flt} ORDER BY o.asset_id,o.captured_at DESC) ")
     imgs = q(f"SELECT count(*) n FROM observations o JOIN assets a ON a.asset_id=o.asset_id WHERE {win} {flt}", P, one=True)["n"]
     pie = q(L + "SELECT issue_class,count(*) n FROM latest GROUP BY 1", P)
-    rank = q(L + "SELECT asset_id,issue_class,risk_score,risk_level,energy_loss_kwh_day FROM latest WHERE issue_class<>'clean' "
+    rank = q(L + "SELECT asset_id,issue_class,risk_score,risk_level,energy_loss_kwh_day,round((capacity_kw*%(psh)s)::numeric,1)::float8 AS optimum_kwh_day FROM latest WHERE issue_class<>'clean' "
              "ORDER BY risk_score DESC,energy_loss_kwh_day DESC NULLS LAST LIMIT 20", P)
-    roll = q(L + "SELECT state,op_area,city,station,count(*) assets_with_issues,round(sum(energy_loss_kwh_day)::numeric,1) total_loss_kwh_day "
+    roll = q(L + "SELECT state,op_area,city,station,count(*) assets_with_issues,round(sum(energy_loss_kwh_day)::numeric,1) total_loss_kwh_day,round(sum(capacity_kw*%(psh)s)::numeric,1) total_optimum_kwh_day "
              "FROM latest WHERE issue_class<>'clean' GROUP BY ROLLUP(state,op_area,city,station) "
              "ORDER BY state NULLS FIRST,op_area NULLS FIRST,city NULLS FIRST,station NULLS FIRST", P)
     ni = q(L + f"SELECT count(*) n FROM assets a WHERE true {flt} AND NOT EXISTS (SELECT 1 FROM latest l WHERE l.asset_id=a.asset_id)", P, one=True)["n"]
@@ -260,7 +258,7 @@ def planner(start: str = None, end: str = None, state: str = None, op_area: str 
     group = group if group in ORDER else "station"; now = datetime.now(timezone.utc); today = now.date()
     P = dict(s=start or (now - timedelta(days=30)).isoformat(), e=end or now.isoformat(), state=state, op_area=op_area, city=city, station=station)
     flt = area_flt(P)
-    L = ("WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.severity,o.risk_score,o.risk_level,o.energy_loss_kwh_day,a.station,a.city,a.op_area,a.state "
+    L = ("WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.severity,o.risk_score,o.risk_level,o.energy_loss_kwh_day,a.capacity_kw,a.station,a.city,a.op_area,a.state "
          f"FROM observations o JOIN assets a ON a.asset_id=o.asset_id WHERE o.asset_confirmed AND o.captured_at BETWEEN %(s)s::timestamptz AND %(e)s::timestamptz {flt} "
          "ORDER BY o.asset_id,o.captured_at DESC) ")
     rows = q(L + "SELECT * FROM latest l WHERE l.issue_class<>'clean' AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.asset_id=l.asset_id AND t.wo_id IS NOT NULL AND t.status<>'resolved') ORDER BY l.risk_score DESC", P)
@@ -282,16 +280,17 @@ def planner(start: str = None, end: str = None, state: str = None, op_area: str 
     g, by_st = {}, {}
     for r in rows:
         r["action"] = _rules(r)["action"]; u = upcoming.get(r["station"])
+        r["optimum_kwh_day"] = round(r["capacity_kw"] * PSH, 1) if r["capacity_kw"] else None
         r["join"] = dict(wo_id=u["wo_id"], date=u["scheduled_for"]) if u else None
         path = " > ".join(r[c] for c in ORDER[:ORDER.index(group) + 1])
-        x = g.setdefault(path, dict(area=path, issues=0, urgent=0, no_visit_urgent=0, loss_kwh_day=0.0, due_in_days=999, items=[]))
+        x = g.setdefault(path, dict(area=path, issues=0, urgent=0, no_visit_urgent=0, loss_kwh_day=0.0, optimum_kwh_day=0.0, due_in_days=999, items=[]))
         urg = r["risk_level"] in ("high", "critical")
-        x["issues"] += 1; x["urgent"] += urg; x["no_visit_urgent"] += (urg and not r["join"]); x["loss_kwh_day"] += r["energy_loss_kwh_day"] or 0
+        x["issues"] += 1; x["urgent"] += urg; x["no_visit_urgent"] += (urg and not r["join"]); x["loss_kwh_day"] += r["energy_loss_kwh_day"] or 0; x["optimum_kwh_day"] += r["optimum_kwh_day"] or 0
         x["due_in_days"] = min(x["due_in_days"], DUE[r["risk_level"]]); x["items"].append(r); by_st.setdefault(r["station"], []).append(r)
     for s_, items in by_st.items():
         if s_ in upcoming: upcoming[s_]["flags"].append(dict(type="bundle", sev="low", text=f"{len(items)} unscheduled issue(s) at this station could join this visit."))
     out = sorted(g.values(), key=lambda x: (x["due_in_days"], -x["loss_kwh_day"]))
-    for x in out: x["loss_kwh_day"] = round(x["loss_kwh_day"], 1)
+    for x in out: x["loss_kwh_day"], x["optimum_kwh_day"] = round(x["loss_kwh_day"], 1), round(x["optimum_kwh_day"], 1)
     return dict(groups=out, visits=list(V.values()))
 
 def attach(wo, aids):  # put assets' issues on a visit (reuse an open ticket if one exists, else create it)
@@ -343,25 +342,33 @@ def wo_resched(wid: int, b: Resched):
 def tickets():
     return q("SELECT t.ticket_id,t.asset_id,a.station,a.city,t.issue_class,t.priority,t.action,t.status,t.wo_id,t.created_at FROM tickets t LEFT JOIN assets a ON a.asset_id=t.asset_id ORDER BY t.ticket_id DESC LIMIT 50")
 
+def _file_url(path):
+    return "/files" + path[len(DATA):] if path and path.startswith(DATA) and os.path.exists(path) else None
+
 @app.get("/map")  # panels with their latest status in the window, for the dashboard map
 def map_data(start: str = None, end: str = None, state: str = None, op_area: str = None, city: str = None, station: str = None):
     now = datetime.now(timezone.utc)
-    P = dict(s=start or (now - timedelta(days=30)).isoformat(), e=end or now.isoformat(), state=state, op_area=op_area, city=city, station=station)
+    P = dict(s=start or (now - timedelta(days=30)).isoformat(), e=end or now.isoformat(), state=state, op_area=op_area, city=city, station=station, psh=PSH)
     flt = area_flt(P)
-    L = ("WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.risk_score,o.risk_level,o.energy_loss_kwh_day "
+    L = ("WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.risk_score,o.risk_level,o.energy_loss_kwh_day,o.captured_at,o.image_path,o.source "
          f"FROM observations o JOIN assets a ON a.asset_id=o.asset_id WHERE o.asset_confirmed AND o.captured_at BETWEEN %(s)s::timestamptz AND %(e)s::timestamptz {flt} "
          "ORDER BY o.asset_id,o.captured_at DESC) ")
-    r = q(L + "SELECT a.asset_id,a.station,a.city,a.op_area,a.state,ST_AsGeoJSON(a.geom)::json g,l.issue_class,l.risk_level,l.risk_score,l.energy_loss_kwh_day,"
+    r = q(L + "SELECT a.asset_id,a.station,a.city,a.op_area,a.state,ST_AsGeoJSON(a.geom)::json g,l.issue_class,l.risk_level,l.risk_score,l.energy_loss_kwh_day,round((a.capacity_kw*%(psh)s)::numeric,1)::float8 AS optimum_kwh_day,l.captured_at,l.image_path,l.source,"
               "EXISTS(SELECT 1 FROM tickets t WHERE t.asset_id=a.asset_id AND t.wo_id IS NOT NULL AND t.status<>'resolved') AS scheduled "
               "FROM assets a LEFT JOIN latest l ON l.asset_id=a.asset_id WHERE true " + flt, P)
-    return {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": x.pop("g"), "properties": x} for x in r]}
+    feats = []
+    for x in r:  # turn on-disk photo paths into URLs, only when the file exists; never expose disk paths
+        g, ip = x.pop("g"), x.pop("image_path")
+        x["image_url"], x["cam_url"] = _file_url(ip), (_file_url(os.path.splitext(ip)[0] + "_cam.jpg") if ip else None)
+        feats.append({"type": "Feature", "geometry": g, "properties": x})
+    return {"type": "FeatureCollection", "features": feats}
 
 # ---------- Chat AI: the model answers from read-only, parameterised tools (never free-form SQL) ----------
 def _latest(level=None, name=None, days=30):
     now = datetime.now(timezone.utc); P = dict(s=(now - timedelta(days=int(days or 30))).isoformat(), e=now.isoformat())
     if level in ORDER and name: P[level] = name
     flt = area_flt(P)
-    L = ("WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.severity,o.risk_score,o.risk_level,o.energy_loss_kwh_day,a.station,a.city,a.op_area,a.state "
+    L = ("WITH latest AS (SELECT DISTINCT ON (o.asset_id) o.asset_id,o.issue_class,o.severity,o.risk_score,o.risk_level,o.energy_loss_kwh_day,a.capacity_kw,a.station,a.city,a.op_area,a.state "
          f"FROM observations o JOIN assets a ON a.asset_id=o.asset_id WHERE o.asset_confirmed AND o.captured_at BETWEEN %(s)s::timestamptz AND %(e)s::timestamptz {flt} "
          "ORDER BY o.asset_id,o.captured_at DESC) ")
     return L, P, flt
@@ -383,23 +390,24 @@ def t_asset(asset_id):
     if hist:
         n = q("SELECT count(*) n FROM observations WHERE asset_id=%s AND issue_class=%s AND captured_at>now()-interval '12 months'", (asset_id, hist[0]["issue_class"]), one=True)["n"]
         risk = risk_score(a, dict(issue_class=hist[0]["issue_class"], severity=hist[0]["severity"]), n)
-    return dict(asset=a, latest_observations=hist, open_tickets=tk, risk=risk)
+    return dict(asset=a, latest_observations=hist, open_tickets=tk, risk=risk, optimum_kwh_day=round(a["capacity_kw"] * PSH, 1) if a["capacity_kw"] else None)
 
 def t_area(level=None, name=None, days=30):
     L, P, flt = _latest(level, name, days)
-    rows = q(L + "SELECT issue_class,risk_level,energy_loss_kwh_day FROM latest", P)
-    total = q(f"SELECT count(*) n FROM assets a WHERE true {flt}", P, one=True)["n"]
+    rows = q(L + "SELECT issue_class,risk_level,energy_loss_kwh_day,capacity_kw FROM latest", P)
+    tq = q(f"SELECT count(*) n,coalesce(sum(a.capacity_kw),0) c FROM assets a WHERE true {flt}", P, one=True); total = tq["n"]
     iss = [r for r in rows if r["issue_class"] != "clean"]; by, lv = {}, {}
     for r in iss: by[r["issue_class"]] = by.get(r["issue_class"], 0) + 1; lv[r["risk_level"]] = lv.get(r["risk_level"], 0) + 1
     ov = q(f"SELECT count(*) n FROM work_orders w WHERE w.status<>'done' AND w.station IN (SELECT a.station FROM assets a WHERE true {flt})", P, one=True)["n"]
     return dict(scope=f"{level} = {name}" if level and name else "all areas", window_days=int(days or 30), assets_total=total, assets_inspected=len(rows),
                 assets_clean=len(rows) - len(iss), assets_with_issues=len(iss), assets_not_inspected=total - len(rows), issues_by_class=by, issues_by_risk_level=lv,
-                total_loss_kwh_day=round(sum(r["energy_loss_kwh_day"] or 0 for r in iss), 1), open_visits=ov)
+                total_loss_kwh_day=round(sum(r["energy_loss_kwh_day"] or 0 for r in iss), 1),
+                optimum_kwh_day_assets_with_issues=round(sum((r["capacity_kw"] or 0) * PSH for r in iss), 1), optimum_kwh_day_all_assets=round(float(tq["c"]) * PSH, 1), open_visits=ov)
 
 def t_top(level=None, name=None, n=5, days=30):
     L, P, _ = _latest(level, name, days)
-    return q(L + "SELECT asset_id,station,issue_class,severity,risk_score,risk_level,energy_loss_kwh_day FROM latest WHERE issue_class<>'clean' "
-             "ORDER BY risk_score DESC,energy_loss_kwh_day DESC NULLS LAST LIMIT %(n)s", {**P, "n": min(int(n or 5), 20)})
+    return q(L + "SELECT asset_id,station,issue_class,severity,risk_score,risk_level,energy_loss_kwh_day,round((capacity_kw*%(psh)s)::numeric,1)::float8 AS optimum_kwh_day FROM latest WHERE issue_class<>'clean' "
+             "ORDER BY risk_score DESC,energy_loss_kwh_day DESC NULLS LAST LIMIT %(n)s", {**P, "n": min(int(n or 5), 20), "psh": PSH})
 
 def t_visits(level=None, name=None):
     P = {level: name} if level in ORDER and name else {}; flt = area_flt(P)
@@ -421,7 +429,7 @@ TOOLS = [
 CHAT_SYS = ("You are NiX, an assistant for solar asset maintenance at a utility. Answer only from tool results and never invent numbers. "
             "Call resolve_entity when a name is unclear, and ask the user which one if several match. Interpret this area or this station using the current UI filters. "
             "State the time window you used. Be concise: short sentences, include asset ids and numbers, a short list when it helps. "
-            "Risk scores are 0 to 100 from a deterministic engine with levels low, medium, high and critical. "
+            "Risk scores are 0 to 100 from a deterministic engine with levels low, medium, high and critical. kWh/day lost is the estimated output lost to an issue; kWh/day generated at optimum capacity is panel capacity times 5 peak sun hours with no losses. "
             "If asked to schedule or raise work, call propose_schedule with the asset ids and tell the user to confirm with the button. Never say work has been scheduled.")
 
 def run_tool(name, a, prop):
@@ -440,13 +448,14 @@ def run_tool(name, a, prop):
 def fmt_area(s, top):
     t = "; ".join(f"{r['asset_id']} ({r['issue_class']}, {r['risk_level']}, {r['risk_score']}/100)" for r in top[:3]) or "none"
     return (f"{s['scope']}, last {s['window_days']} days: {s['assets_total']} assets, {s['assets_inspected']} inspected, {s['assets_with_issues']} with issues, "
-            f"{s['assets_not_inspected']} not inspected. Issues by type: {s['issues_by_class'] or 'none'}. Estimated loss {s['total_loss_kwh_day']} kWh/day. Open visits: {s['open_visits']}. Most urgent: {t}.")
+            f"{s['assets_not_inspected']} not inspected. Issues by type: {s['issues_by_class'] or 'none'}. Estimated loss {s['total_loss_kwh_day']} kWh/day lost, against {s['optimum_kwh_day_assets_with_issues']} kWh/day generated at optimum capacity for those assets. Open visits: {s['open_visits']}. Most urgent: {t}.")
 
 def fmt_asset(d):
     if "error" in d: return d["error"]
     a, k, o = d["asset"], d["risk"], (d["latest_observations"] or [None])[0]
     s = f"{a['asset_id']} at {a['station']} ({a['city']}, {a['op_area']}, {a['state']}); capacity {a['capacity_kw']} kW; installed {a['install_date']}; last cleaned {a['last_cleaned_date']}. "
     s += (f"Latest: {o['issue_class']} ({o['severity']}) on {o['captured_at']:%Y-%m-%d}, risk {k['score']}/100 ({k['level']}). " if o else "No observations on record. ")
+    if d.get("optimum_kwh_day"): s += f"Generates {d['optimum_kwh_day']} kWh/day at optimum capacity. "
     return s + f"Open tickets: {len(d['open_tickets'])}."
 
 def find_entity(text, ctx):  # most specific named place in the text, else the UI filter
